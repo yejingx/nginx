@@ -164,6 +164,7 @@ typedef struct {
     ngx_uint_t                       next_upstream_tries;
     ngx_flag_t                       buffering;
     ngx_flag_t                       request_buffering;
+    ngx_flag_t                       request_retry;
     ngx_flag_t                       pass_request_headers;
     ngx_flag_t                       pass_request_body;
 
@@ -314,6 +315,8 @@ struct ngx_http_upstream_s {
     ngx_http_upstream_headers_in_t   headers_in;
 
     ngx_http_upstream_resolved_t    *resolved;
+
+    ngx_buf_t                       *header;
 
     ngx_buf_t                        from_client;
 

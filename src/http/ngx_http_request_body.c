@@ -442,7 +442,13 @@ ngx_http_do_read_client_request_body(ngx_http_request_t *r)
         ngx_del_timer(c->read);
     }
 
-    if (rb->temp_file || r->request_body_in_file_only) {
+    if (r->request_body_no_buffering && r->request_retry) {
+
+        if (ngx_http_write_request_body(r) != NGX_OK) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+    } else if (rb->temp_file || r->request_body_in_file_only) {
 
         /* save the last part */
 
@@ -548,16 +554,18 @@ ngx_http_write_request_body(ngx_http_request_t *r)
 
     /* mark all buffers as written */
 
-    for (cl = rb->bufs; cl; /* void */) {
+    if (!r->request_body_no_buffering || !r->request_retry) {
+        for (cl = rb->bufs; cl; /* void */) {
 
-        cl->buf->pos = cl->buf->last;
+            cl->buf->pos = cl->buf->last;
 
-        ln = cl;
-        cl = cl->next;
-        ngx_free_chain(r->pool, ln);
+            ln = cl;
+            cl = cl->next;
+            ngx_free_chain(r->pool, ln);
+        }
+
+        rb->bufs = NULL;
     }
-
-    rb->bufs = NULL;
 
     return NGX_OK;
 }
@@ -1174,7 +1182,7 @@ ngx_http_request_body_save_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
     if (rb->rest > 0
         && rb->buf && rb->buf->last == rb->buf->end
-        && !r->request_body_no_buffering)
+        && (!r->request_body_no_buffering || r->request_retry))
     {
         if (ngx_http_write_request_body(r) != NGX_OK) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;

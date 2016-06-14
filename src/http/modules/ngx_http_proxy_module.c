@@ -307,6 +307,13 @@ static ngx_command_t  ngx_http_proxy_commands[] = {
       offsetof(ngx_http_proxy_loc_conf_t, upstream.request_buffering),
       NULL },
 
+    { ngx_string("proxy_request_retry"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
+      ngx_conf_set_flag_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_proxy_loc_conf_t, upstream.request_retry),
+      NULL },
+
     { ngx_string("proxy_ignore_client_abort"),
       NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
       ngx_conf_set_flag_slot,
@@ -903,6 +910,10 @@ ngx_http_proxy_handler(ngx_http_request_t *r)
         r->request_body_no_buffering = 1;
     }
 
+    if (plcf->upstream.request_retry) {
+        r->request_retry = 1;
+    }
+
     rc = ngx_http_read_client_request_body(r, ngx_http_upstream_init);
 
     if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
@@ -1427,6 +1438,16 @@ ngx_http_proxy_create_request(ngx_http_request_t *r)
     if (r->request_body_no_buffering) {
 
         u->request_bufs = cl;
+
+        if (r->request_retry && u->header == NULL) {
+            b = ngx_alloc_buf(r->pool);
+            if (b == NULL) {
+                return NGX_ERROR;
+            }
+
+            ngx_memcpy(b, cl->buf, sizeof(ngx_buf_t));
+            u->header = b;
+        }
 
         if (ctx->internal_chunked) {
             u->output.output_filter = ngx_http_proxy_body_output_filter;
@@ -2814,6 +2835,7 @@ ngx_http_proxy_create_loc_conf(ngx_conf_t *cf)
     conf->upstream.next_upstream_tries = NGX_CONF_UNSET_UINT;
     conf->upstream.buffering = NGX_CONF_UNSET;
     conf->upstream.request_buffering = NGX_CONF_UNSET;
+    conf->upstream.request_retry = NGX_CONF_UNSET;
     conf->upstream.ignore_client_abort = NGX_CONF_UNSET;
     conf->upstream.force_ranges = NGX_CONF_UNSET;
 
@@ -2925,6 +2947,9 @@ ngx_http_proxy_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(conf->upstream.request_buffering,
                               prev->upstream.request_buffering, 1);
+
+    ngx_conf_merge_value(conf->upstream.request_retry,
+                              prev->upstream.request_retry, 0);
 
     ngx_conf_merge_value(conf->upstream.ignore_client_abort,
                               prev->upstream.ignore_client_abort, 0);

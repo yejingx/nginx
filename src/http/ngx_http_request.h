@@ -474,6 +474,7 @@ struct ngx_http_request_s {
     unsigned                          request_body_file_group_access:1;
     unsigned                          request_body_file_log_level:3;
     unsigned                          request_body_no_buffering:1;
+    unsigned                          request_retry:1;
 
     unsigned                          subrequest_in_memory:1;
     unsigned                          waited:1;

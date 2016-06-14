@@ -513,6 +513,9 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
     ngx_http_core_loc_conf_t       *clcf;
     ngx_http_upstream_srv_conf_t   *uscf, **uscfp;
     ngx_http_upstream_main_conf_t  *umcf;
+    ngx_http_request_body_t        *rb;
+    ngx_chain_t                    *cl;
+    ngx_buf_t                      *b;
 
     if (r->aio) {
         return;
@@ -556,6 +559,29 @@ ngx_http_upstream_init_request(ngx_http_request_t *r)
     if (!u->store && !r->post_action && !u->conf->ignore_client_abort) {
         r->read_event_handler = ngx_http_upstream_rd_check_broken_connection;
         r->write_event_handler = ngx_http_upstream_wr_check_broken_connection;
+    }
+
+    if (r->request_retry) {
+
+        rb = r->request_body;
+
+        if (rb->temp_file && rb->temp_file->file.offset != 0) {
+            cl = ngx_chain_get_free_buf(r->pool, &rb->free);
+            if (cl == NULL) {
+                ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+                return;
+            }
+
+            b = cl->buf;
+
+            ngx_memzero(b, sizeof(ngx_buf_t));
+
+            b->in_file = 1;
+            b->file_last = rb->temp_file->file.offset;
+            b->file = &rb->temp_file->file;
+
+            rb->bufs = cl;
+        }
     }
 
     if (r->request_body) {
@@ -1849,6 +1875,8 @@ ngx_http_upstream_send_request_body(ngx_http_request_t *r,
     ngx_chain_t               *out, *cl, *ln;
     ngx_connection_t          *c;
     ngx_http_core_loc_conf_t  *clcf;
+    ngx_http_request_body_t   *rb;
+    ngx_buf_t                 *b;
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "http upstream send request body");
@@ -1871,6 +1899,28 @@ ngx_http_upstream_send_request_body(ngx_http_request_t *r,
     if (!u->request_sent) {
         u->request_sent = 1;
         out = u->request_bufs;
+
+        rb = r->request_body;
+        if (r->request_retry && rb->temp_file && rb->temp_file->file.offset != 0) {
+
+            b = ngx_calloc_buf(r->pool);
+            if (b == NULL) {
+                return NGX_ERROR;
+            }
+
+            cl = ngx_alloc_chain_link(r->pool);
+            if (cl == NULL) {
+                return NGX_ERROR;
+            }
+
+            b->in_file = 1;
+            b->file_last = rb->temp_file->file.offset;
+            b->file = &rb->temp_file->file;
+
+            cl->buf = b;
+            cl->next = NULL;
+            rb->bufs = cl;
+        }
 
         if (r->request_body->bufs) {
             for (cl = out; cl->next; cl = out->next) { /* void */ }
@@ -3781,6 +3831,7 @@ ngx_http_upstream_next(ngx_http_request_t *r, ngx_http_upstream_t *u,
 {
     ngx_msec_t  timeout;
     ngx_uint_t  status, state;
+    ngx_chain_t *cl;
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "http next upstream, %xi", ft_type);
@@ -3855,7 +3906,7 @@ ngx_http_upstream_next(ngx_http_request_t *r, ngx_http_upstream_t *u,
 
         if (u->peer.tries == 0
             || !(u->conf->next_upstream & ft_type)
-            || (u->request_sent && r->request_body_no_buffering)
+            || (u->request_sent && r->request_body_no_buffering && r->request_retry == 0)
             || (timeout && ngx_current_msec - u->peer.start_time >= timeout))
         {
 #if (NGX_HTTP_CACHE)
@@ -3879,6 +3930,17 @@ ngx_http_upstream_next(ngx_http_request_t *r, ngx_http_upstream_t *u,
 
             ngx_http_upstream_finalize_request(r, u, status);
             return;
+        }
+
+        if (u->request_sent && r->request_body_no_buffering && u->header) {
+            cl = ngx_alloc_chain_link(r->pool);
+            if (cl == NULL) {
+                ngx_http_upstream_finalize_request(r, u, NGX_HTTP_INTERNAL_SERVER_ERROR);
+                return;
+            }
+            cl->buf = u->header;
+            cl->next = NULL;
+            u->request_bufs = cl;
         }
     }
 
