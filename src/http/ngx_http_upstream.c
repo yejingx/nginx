@@ -3832,6 +3832,7 @@ ngx_http_upstream_next(ngx_http_request_t *r, ngx_http_upstream_t *u,
     ngx_msec_t  timeout;
     ngx_uint_t  status, state;
     ngx_chain_t *cl;
+    ngx_http_request_body_t   *rb;
 
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "http next upstream, %xi", ft_type);
@@ -3930,6 +3931,26 @@ ngx_http_upstream_next(ngx_http_request_t *r, ngx_http_upstream_t *u,
 
             ngx_http_upstream_finalize_request(r, u, status);
             return;
+        }
+
+        rb = r->request_body;
+        if (rb->bufs == NULL) {
+            cl = ngx_alloc_chain_link(r->pool);
+            if (cl == NULL) {
+                ngx_http_upstream_finalize_request(r, u, NGX_HTTP_INTERNAL_SERVER_ERROR);
+                return;
+            }
+
+            cl->next = NULL;
+            cl->buf = rb->buf;
+            rb->bufs = cl;
+
+            if (ngx_http_save_request_body(r) != NGX_OK) {
+                ngx_http_upstream_finalize_request(r, u, NGX_HTTP_INTERNAL_SERVER_ERROR);
+                return;
+            }
+            ngx_free_chain(r->pool, cl);
+            rb->bufs = NULL;
         }
 
         if (u->request_sent && r->request_body_no_buffering && u->header) {

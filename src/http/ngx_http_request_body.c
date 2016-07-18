@@ -1191,3 +1191,9 @@ ngx_http_request_body_save_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
     return NGX_OK;
 }
+
+
+ngx_int_t
+ngx_http_save_request_body(ngx_http_request_t *r) {
+    return ngx_http_write_request_body(r);
+}
