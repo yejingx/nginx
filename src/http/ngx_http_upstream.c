@@ -3934,12 +3934,16 @@ ngx_http_upstream_next(ngx_http_request_t *r, ngx_http_upstream_t *u,
         }
 
         rb = r->request_body;
-        if (rb->bufs == NULL) {
+        if (rb->bufs == NULL && rb->rest > 0
+                && rb->buf->last != rb->buf->end
+                && rb->buf->last != rb->buf->start) {
             cl = ngx_alloc_chain_link(r->pool);
             if (cl == NULL) {
                 ngx_http_upstream_finalize_request(r, u, NGX_HTTP_INTERNAL_SERVER_ERROR);
                 return;
             }
+
+            rb->buf->pos = rb->buf->start;
 
             cl->next = NULL;
             cl->buf = rb->buf;
