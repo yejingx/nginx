@@ -3957,7 +3957,7 @@ ngx_http_upstream_next(ngx_http_request_t *r, ngx_http_upstream_t *u,
             rb->bufs = NULL;
         }
 
-        if (u->request_sent && r->request_body_no_buffering && u->header) {
+        if (r->request_body_no_buffering && r->request_retry && u->header) {
             cl = ngx_alloc_chain_link(r->pool);
             if (cl == NULL) {
                 ngx_http_upstream_finalize_request(r, u, NGX_HTTP_INTERNAL_SERVER_ERROR);
